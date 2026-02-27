@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>A Steady Forest</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body { 
+            margin: 0; padding: 0; overflow: hidden; 
+            background-color: #0a0a0a; touch-action: none; 
+            display: flex; justify-content: center; align-items: center;
+            height: 100dvh; width: 100vw;
+        }
+
+        #app-container {
+            position: relative; width: 100%; height: 100%;
+            background-color: #d9e2e8; overflow: hidden; 
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+            touch-action: none; user-select: none; -webkit-user-select: none;
+        }
+
+        @media (min-width: 768px) {
+            #app-container {
+                max-width: 420px; height: 90vh; border-radius: 36px;
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 12px #222; 
+            }
+        }
+        
+        canvas { display: block; width: 100%; height: 100%; outline: none; }
+        
+        #start-screen {
+            position: absolute; inset: 0; z-index: 50;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background-color: transparent; 
+        }
+        #start-screen-bg {
+            position: absolute; inset: 0; background-color: #d9e2e8; z-index: -1;
+            transition: opacity 1s;
+        }
+        
+        #top-vignette {
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 55%, transparent 100%);
+        }
+
+        #dark-overlay {
+            position: absolute; inset: 0; background-color: rgba(0,0,0,0.75);
+            opacity: 0; pointer-events: none; z-index: 5;
+        }
+
+        #transition-overlay {
+            position: absolute; inset: 0; background-color: #d9e2e8;
+            opacity: 0; pointer-events: none; z-index: 100;
+        }
+        
+        #main-text, #sub-text {
+            color: #ffffff;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8), 0 0 5px rgba(0,0,0,0.9);
+        }
+        
+        .fade-text { opacity: 0; transform: translateY(10px); }
+        .text-shadow-heavy { text-shadow: 0 4px 15px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,1) !important; }
+
+        @keyframes bounce-right {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(25%); }
+        }
+        .animate-bounce-right { animation: bounce-right 1s infinite; }
+
+        @keyframes soft-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(255,255,255,0); }
+        }
+        .bubble-pulse { animation: soft-pulse 2s infinite; }
+        
+        @keyframes slow-fade-pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+        .pause-pulse { animation: slow-fade-pulse 2.5s infinite ease-in-out; }
+
+        .particle {
+            opacity: 0; transform: scale(0.5) translate(-50%, -50%);
+            transition: transform 0.1s;
+        }
+        .particle:active { transform: scale(0.9) translate(-50%, -50%); }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="transition-overlay"></div>
+        <div id="dark-overlay"></div>
+        
+        <canvas id="webgl-canvas"></canvas>
+
+        <div id="start-screen">
+            <div id="start-screen-bg"></div>
+            <h1 class="text-3xl font-light text-stone-700 mb-2 tracking-wide text-center px-4 drop-shadow-md" style="text-shadow: none; color: #444;">A Steady Forest</h1>
+            <p class="text-sm text-stone-500 mb-12 tracking-widest uppercase text-center px-4" style="text-shadow: none;">A Thank You</p>
+            
+            <button id="start-btn" class="flex items-center justify-center w-16 h-16 bg-[#5A6B7C] text-white rounded-full shadow-xl active:scale-95 transition-transform cursor-pointer pointer-events-auto">
+                <svg viewBox="0 0 24 24" fill="currentColor" class="w-8 h-8 ml-1"><path d="M5 3v18l15-9L5 3z"/></svg>
+            </button>
+        </div>
+
+        <div id="ui-layer" class="absolute inset-0 flex flex-col items-center justify-start pt-20 px-6 text-center pointer-events-none" style="z-index: 60;">
+            <div id="top-vignette" class="absolute top-0 left-0 w-full h-48 pointer-events-none transition-opacity duration-1000 opacity-0" style="z-index: -1;"></div>
+            <h1 id="main-text" class="text-2xl font-light tracking-wide leading-relaxed fade-text relative"></h1>
+            <p id="sub-text" class="text-sm font-semibold mt-3 tracking-widest uppercase fade-text relative"></p>
+        </div>
+
+        <div id="drag-hint" class="absolute z-10 pointer-events-none opacity-0 flex flex-col items-center transition-opacity duration-300" style="transform: translate(-50%, -100%);">
+            <div class="animate-bounce-right mb-1">
+                <svg class="w-8 h-8 text-white drop-shadow-lg opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 7l5 5m0 0l-5 5m5-5H6"></path></svg>
+            </div>
+            <span class="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full text-[10px] font-bold text-white uppercase tracking-widest border border-white/40 shadow-[0_4px_15px_rgba(0,0,0,0.3)]">Slide to shelter</span>
+        </div>
+
+        <p id="bubble-text" class="absolute bottom-24 left-0 w-full text-center text-lg font-medium text-stone-800 opacity-0 z-10 pointer-events-none drop-shadow-sm tracking-wide"></p>
+
+        <div id="action-banner" class="absolute bottom-0 left-0 w-full bg-white/95 py-4 shadow-[0_-10px_20px_rgba(0,0,0,0.1)] flex justify-center items-center opacity-0 pointer-events-none z-40 transition-opacity duration-700">
+            <span class="text-[11px] font-black tracking-[0.4em] text-black animate-pulse">ACTION MODE</span>
+        </div>
+
+        <div id="restart-btn" class="absolute bottom-20 left-1/2 -translate-x-1/2 w-14 h-14 bg-white/10 backdrop-blur-md border border-white/30 rounded-full flex items-center justify-center text-white cursor-pointer shadow-[0_4px_15px_rgba(0,0,0,0.5)] opacity-0 pointer-events-none transition-transform hover:scale-110 active:scale-95" style="z-index: 60;">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="w-7 h-7"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+        </div>
+
+        <div id="pause-overlay" class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-300" style="background: rgba(0,0,0,0.65); z-index: 50;">
+            <div class="pause-pulse text-white drop-shadow-2xl font-light tracking-[0.5em] text-2xl uppercase pl-4">Paused</div>
+        </div>
+
+        <div id="particle-layer" class="absolute inset-0 z-20 pointer-events-none"></div>
+    </div>
+
+<script>
+    // --- 1. SETUP & RESIZE ---
+    const container = document.getElementById('app-container');
+    const canvas = document.getElementById('webgl-canvas');
+
+    const scene = new THREE.Scene();
+    const morningColor = new THREE.Color(0xd9e2e8);
+    const stormColor = new THREE.Color(0x5A6B7C); 
+    
+    scene.background = morningColor;
+    scene.fog = new THREE.Fog(morningColor, 20, 85); 
+
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+    camera.position.set(0, 20, 55); 
+    camera.lookAt(0, 10, 30);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    function resize() {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+    window.addEventListener('resize', resize); resize();
+
+    // --- 2. GAME STATE & PAUSE SYSTEM ---
+    let state = 0; 
+    let isDragging = false;
+    let dragOffset = 0; 
+    let showDragHint = false; 
+    
+    let isPaused = false;
+    let customTime = 0; 
+    let lastRealTime = 0;
+    let showcaseTimeout; 
+
+    const memories = ["Patience", "Guidance", "Trust", "Vision". "Team"]; 
+    const memoryPhrases = {
+        "Patience": "You are patient with me while I'm down.",
+        "Guidance": "You prepared me for the tasks.",
+        "Trust": "You believed in me.",
+        "Vision": "You shared your vision with me.",
+		"Team": "You make me believe in teamwork!"
+    };
+    let activeMemories = 0;
+    
+    const mainText = document.getElementById('main-text');
+    const subText = document.getElementById('sub-text');
+    const bubbleText = document.getElementById('bubble-text');
+    const dragHint = document.getElementById('drag-hint');
+    const topVignette = document.getElementById('top-vignette');
+    const actionBanner = document.getElementById('action-banner');
+    const pauseOverlay = document.getElementById('pause-overlay');
+    const restartBtn = document.getElementById('restart-btn');
+    const particleLayer = document.getElementById('particle-layer');
+
+    // --- 3. LIGHTING ---
+    const ambientLight = new THREE.HemisphereLight(0xffffff, 0xbfd4d2, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfff5e6, 0.85);
+    dirLight.position.set(8, 15, 10);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 0.5; dirLight.shadow.camera.far = 80;
+    dirLight.shadow.camera.left = -30; dirLight.shadow.camera.right = 30;
+    scene.add(dirLight);
+
+    // --- 4. ENVIRONMENT ---
+    const sceneParams = { windIntensity: 0, rainSpeed: 0.2 }; 
+
+    const cloudGroup = new THREE.Group();
+    scene.add(cloudGroup);
+    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 1 });
+    
+    function createCloudCluster() {
+        const grp = new THREE.Group();
+        for(let i=0; i<6; i++) {
+            const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(4 + Math.random()*3, 0), cloudMat);
+            mesh.position.set((Math.random()-0.5)*8, (Math.random()-0.5)*4, (Math.random()-0.5)*6);
+            mesh.castShadow = true;
+            grp.add(mesh);
+        }
+        return grp;
+    }
+    const cloudLeft = createCloudCluster(); cloudLeft.position.set(-4, 18, 45); cloudGroup.add(cloudLeft);
+    const cloudRight = createCloudCluster(); cloudRight.position.set(4, 17, 47); cloudGroup.add(cloudRight);
+
+    // Rain Lines
+    const rainCanvas = document.createElement('canvas');
+    rainCanvas.width = 4; rainCanvas.height = 32;
+    const rctx = rainCanvas.getContext('2d');
+    rctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    rctx.fillRect(1, 0, 2, 32); 
+    const rainTex = new THREE.CanvasTexture(rainCanvas);
+    const rainCount = 700;
+    const rainGeo = new THREE.BufferGeometry();
+    const rainPos = new Float32Array(rainCount * 6); 
+    const slantX = 0.8, slantY = -2.0;
+
+    for(let i=0; i<rainCount; i++) {
+        const x = (Math.random() - 0.5) * 50; const y = Math.random() * 30; const z = (Math.random() - 0.5) * 30;
+        rainPos[i*6] = x; rainPos[i*6+1] = y; rainPos[i*6+2] = z;
+        rainPos[i*6+3] = x + slantX; rainPos[i*6+4] = y + slantY; rainPos[i*6+5] = z;
+    }
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+    const rainMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+    const rainSystem = new THREE.LineSegments(rainGeo, rainMat);
+    rainSystem.visible = false; 
+    scene.add(rainSystem);
+
+    // Rain Splashes (Wet brown color to match ground)
+    const splashGroup = new THREE.Group();
+    splashGroup.position.y = 0.01; 
+    scene.add(splashGroup);
+    const splashes = [];
+    const splashMat = new THREE.MeshBasicMaterial({ color: 0x4a4036, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
+    const splashGeo = new THREE.RingGeometry(0.1, 0.16, 16);
+    
+    for(let i=0; i<80; i++) {
+        const s = new THREE.Mesh(splashGeo, splashMat.clone());
+        s.rotation.x = -Math.PI / 2; 
+        s.userData = { active: false, life: 0, maxLife: 0.2 + Math.random() * 0.3 };
+        splashGroup.add(s);
+        splashes.push(s);
+    }
+
+    const birds = [];
+    const birdGroup = new THREE.Group();
+    scene.add(birdGroup);
+
+    const flareCanvas = document.createElement('canvas');
+    flareCanvas.width = 256; flareCanvas.height = 256;
+    const fctx = flareCanvas.getContext('2d');
+    const grad = fctx.createRadialGradient(128,128,0, 128,128,128);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.1, 'rgba(255, 240, 180, 0.8)');
+    grad.addColorStop(0.4, 'rgba(255, 210, 120, 0.3)');
+    grad.addColorStop(1, 'rgba(255, 200, 100, 0)');
+    fctx.fillStyle = grad; fctx.fillRect(0,0,256,256);
+    const flareMat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(flareCanvas), transparent: true, blending: THREE.AdditiveBlending, opacity: 0, depthWrite: false });
+    const sunFlare = new THREE.Sprite(flareMat);
+    sunFlare.position.set(12, 18, -15); 
+    sunFlare.scale.set(30, 30, 1);
+    scene.add(sunFlare);
+
+    // --- 5. 3D OBJECTS ---
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0xd8c398, roughness: 1 });
+    const ground = new THREE.Mesh(new THREE.CylinderGeometry(60, 60, 1, 32), groundMat);
+    ground.position.y = -0.5; ground.receiveShadow = true; scene.add(ground);
+
+    function addFlowers(group, canopy, size, matArray, startOpacity) {
+        if(Math.random() > 0.07) return; 
+        const colors = [0xFFB7B2, 0xFFDAC1, 0xE2F0CB, 0xFF9AA2]; 
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const fMat = new THREE.MeshStandardMaterial({ color, flatShading: true, transparent: true, opacity: startOpacity });
+        matArray.push(fMat);
+        for(let i=0; i<4; i++) {
+            const f = new THREE.Mesh(new THREE.IcosahedronGeometry(size*0.18, 0), fMat);
+            const theta = Math.random() * Math.PI*2; const phi = Math.random() * Math.PI*0.7; 
+            const r = size * 0.95;
+            f.position.set(canopy.position.x + r*Math.sin(phi)*Math.cos(theta), canopy.position.y + r*Math.cos(phi), canopy.position.z + r*Math.sin(phi)*Math.sin(theta));
+            f.castShadow = true; group.add(f);
+        }
+    }
+
+    function createSimpleTree(color, height, size) {
+        const group = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, height, 6), new THREE.MeshStandardMaterial({ color: 0x6e5c47, flatShading: true }));
+        trunk.position.y = height / 2; trunk.castShadow = true; trunk.receiveShadow = true; group.add(trunk);
+        const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 0), new THREE.MeshStandardMaterial({ color: color, flatShading: true }));
+        leaves.position.y = height + (size * 0.4); leaves.castShadow = true;
+        group.userData.leaves = [leaves]; group.add(leaves);
+        return group;
+    }
+
+    function createForestTree(color, height, size) {
+        const group = new THREE.Group();
+        group.userData.materials = []; 
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4d3c, flatShading: true, transparent: true, opacity: 0 });
+        const leafMat = new THREE.MeshStandardMaterial({ color: color, flatShading: true, transparent: true, opacity: 0 });
+        group.userData.materials.push(trunkMat, leafMat);
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, height, 6), trunkMat);
+        trunk.position.y = height / 2; trunk.castShadow = true; trunk.receiveShadow = true; group.add(trunk);
+        const leaves = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 0), leafMat);
+        leaves.position.y = height + (size * 0.4); leaves.castShadow = true; group.add(leaves);
+        addFlowers(group, leaves, size, group.userData.materials, 0);
+
+        if (Math.random() > 0.5) {
+            const side = Math.random() > 0.5 ? 1 : -1; 
+            const bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.4, height * 0.6, 6), trunkMat);
+            bMesh.position.set(side * 0.6, height * 0.6, 0); bMesh.rotation.z = side * -Math.PI / 6; group.add(bMesh);
+            const lMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(size * 0.75, 0), leafMat);
+            lMesh.position.set(side * 1.2, height * 0.9, 0); lMesh.castShadow = true; group.add(lMesh);
+            addFlowers(group, lMesh, size * 0.75, group.userData.materials, 0);
+        }
+        return group;
+    }
+
+    function createBossTree() {
+        const group = new THREE.Group();
+        group.userData.leaves = [];
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4d3c, flatShading: true, transparent: true, opacity: 1 });
+        const leafMat = new THREE.MeshStandardMaterial({ color: 0xb565a7, flatShading: true, transparent: true, opacity: 1 });
+        group.userData.materials = [trunkMat, leafMat];
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.4, 7.5, 7), trunkMat);
+        trunk.position.y = 3.75; trunk.castShadow = true; trunk.receiveShadow = true; group.add(trunk);
+
+        function addBranch(x, y, z, rotZ, size, reachX, reachY) {
+            const bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.7, 3.5, 6), trunkMat);
+            bMesh.position.set(x, y, z); bMesh.rotation.z = rotZ; bMesh.castShadow = true; bMesh.receiveShadow = true; group.add(bMesh);
+            const lMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 0), leafMat);
+            lMesh.position.set(x + reachX, y + reachY, z); lMesh.castShadow = true; group.add(lMesh); group.userData.leaves.push(lMesh);
+        }
+        const centerLeaf = new THREE.Mesh(new THREE.IcosahedronGeometry(4.0, 0), leafMat);
+        centerLeaf.position.set(0, 8.5, 0); centerLeaf.castShadow = true; group.add(centerLeaf); group.userData.leaves.push(centerLeaf);
+        
+        addBranch(-1.2, 5.5, 0.5, Math.PI / 5, 3.0, -2.0, 2.0);
+        addBranch(1.5, 4.5, -0.5, -Math.PI / 4, 3.2, 2.2, 1.5);
+        return group;
+    }
+
+    const bossTree = createBossTree();
+    bossTree.position.set(2.5, 0, 0); 
+    scene.add(bossTree);
+
+    const saplingPivot = new THREE.Group();
+    saplingPivot.position.set(-4.5, 0, 0); 
+    
+    const sapling = createSimpleTree(0x8CA86E, 4, 2.5);
+    sapling.scale.set(0.15, 0.15, 0.15); 
+    saplingPivot.add(sapling);
+    scene.add(saplingPivot);
+
+    // --- 6. ANIMATION LOOP ---
+    const clock = new THREE.Clock();
+    lastRealTime = clock.getElapsedTime();
+
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        const nowReal = clock.getElapsedTime();
+        const dt = nowReal - lastRealTime;
+        lastRealTime = nowReal;
+
+        if (!isPaused) {
+            customTime += dt;
+            const t = customTime;
+
+            if (rainSystem.visible) {
+                const rm = sceneParams.rainSpeed; 
+                
+                const pos = rainGeo.attributes.position.array;
+                for(let i=0; i<rainCount; i++) {
+                    pos[i*6] += (0.1 + sceneParams.windIntensity * 0.3) * rm; pos[i*6+1] -= 1.0 * rm; 
+                    pos[i*6+3] += (0.1 + sceneParams.windIntensity * 0.3) * rm; pos[i*6+4] -= 1.0 * rm; 
+                    if (pos[i*6+1] < -2) {
+                        const nx = (Math.random() - 0.5) * 50; const ny = 25 + Math.random() * 10; const nz = (Math.random() - 0.5) * 30;
+                        pos[i*6] = nx; pos[i*6+1] = ny; pos[i*6+2] = nz;
+                        pos[i*6+3] = nx + slantX; pos[i*6+4] = ny + slantY; pos[i*6+5] = nz;
+                    }
+                }
+                rainGeo.attributes.position.needsUpdate = true;
+            }
+
+            // FIXED: Splashes now pulled out of rain visible check so they naturally fade/clear away
+            splashes.forEach(s => {
+                if (s.userData.active) {
+                    s.userData.life += dt; 
+                    let progress = s.userData.life / s.userData.maxLife;
+                    if (progress >= 1) {
+                        s.userData.active = false;
+                        s.material.opacity = 0;
+                    } else {
+                        s.scale.setScalar(1 + progress * 2.5); 
+                        // Ties opacity directly to the rain lines, so when the storm fades, the ripples vanish seamlessly
+                        s.material.opacity = (1 - progress) * 0.4 * rainMat.opacity; 
+                    }
+                } else if (rainMat.opacity > 0.05 && Math.random() < 0.2 * rainMat.opacity) { 
+                    s.userData.active = true; s.userData.life = 0;
+                    s.position.set((Math.random() - 0.5) * 30, 0.01, (Math.random() - 0.5) * 20);
+                    s.scale.setScalar(1); 
+                    s.material.opacity = 0.4 * rainMat.opacity;
+                }
+            });
+
+            const wind = sceneParams.windIntensity;
+            bossTree.rotation.z = Math.sin(t) * 0.01 * wind;
+            bossTree.userData.leaves.forEach((leaf, idx) => { leaf.rotation.y = Math.sin(t * 0.5 + idx) * (0.05 + wind * 0.02); });
+
+            cloudLeft.position.y += Math.sin(t * 0.5) * 0.005;
+            cloudRight.position.y += Math.cos(t * 0.4) * 0.005;
+
+            const bendResistance = Math.max(0.15, 1.0 - sapling.scale.x); 
+            const maxBend = 0.8 * bendResistance; 
+            const smoothJitter = (Math.sin(t * 4) + Math.cos(t * 6.5)) * 0.05 * wind * bendResistance;
+            saplingPivot.rotation.z = -(maxBend * wind) - smoothJitter; 
+            sapling.userData.leaves[0].rotation.y = Math.sin(t * 1.5) * (0.1 + wind * 0.1);
+            sapling.userData.leaves[0].rotation.z = Math.sin(t * 2) * (0.05 + wind * 0.1);
+
+            if (state === 1 && isDragging) {
+                const distance = bossTree.position.x - saplingPivot.position.x;
+                sceneParams.windIntensity = Math.max(0, Math.min(1, (distance - 4.0) / 3.0)); 
+            } else if (state === 2.5) {
+                sceneParams.windIntensity += (1.0 - sceneParams.windIntensity) * 0.05; 
+            }
+
+            if (showDragHint) {
+                const treePos3D = new THREE.Vector3(saplingPivot.position.x, 3.5, saplingPivot.position.z);
+                treePos3D.project(camera); 
+                let targetLeft = (treePos3D.x * 0.5 + 0.5) * 100; 
+                let targetTop = (-(treePos3D.y * 0.5) + 0.5) * 100;
+                
+                targetLeft = Math.max(20, Math.min(80, targetLeft));
+                targetTop = Math.max(15, Math.min(85, targetTop));
+
+                dragHint.style.left = `${targetLeft}%`;
+                dragHint.style.top = `${targetTop}%`;
+            }
+
+            if (birds.length > 0) {
+                birds.forEach(bird => {
+                    bird.userData.angle -= bird.userData.speed; 
+                    const a = bird.userData.angle; const r = bird.userData.radius;
+                    bird.position.set(Math.cos(a) * r, bird.userData.baseY + Math.sin(t * bird.userData.bobSpeed) * 1.5, Math.sin(a) * r);
+                    const nextA = a - 0.1; bird.lookAt(Math.cos(nextA) * r, bird.position.y, Math.sin(nextA) * r);
+                });
+            }
+        }
+
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    // --- 7. DRAG, PAUSE & LIGHTNING LOGIC ---
+    let lightningInterval;
+    function flashLightning() {
+        if (isPaused) return; 
+        if (state !== 2.5 && state !== 0.5) { clearInterval(lightningInterval); return; }
+        if (Math.random() > 0.7) {
+            scene.background.setHex(0xcbd5e1); 
+            dirLight.intensity = 3;
+            setTimeout(() => {
+                if (!isPaused && (state === 2.5 || state === 0.5)) {
+                    scene.background.copy(stormColor);
+                    dirLight.intensity = 0.4;
+                }
+            }, 50 + Math.random() * 100);
+        }
+    }
+
+    function updateText(main, sub = "", color = "#ffffff", addHeavyShadow = true) { 
+        if (main || sub) { gsap.to(topVignette, { opacity: 1, duration: 1 }); } 
+        else { gsap.to(topVignette, { opacity: 0, duration: 1 }); }
+
+        gsap.to([mainText, subText], { opacity: 0, y: -10, duration: 0.5, onComplete: () => {
+            mainText.innerText = main; subText.innerText = sub; mainText.style.color = color; subText.style.color = color;
+            if (addHeavyShadow) { mainText.classList.add('text-shadow-heavy'); subText.classList.add('text-shadow-heavy'); } 
+            else { mainText.classList.remove('text-shadow-heavy'); subText.classList.remove('text-shadow-heavy'); }
+            if(main || sub) gsap.fromTo([mainText, subText], { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 1, stagger: 0.2 });
+        }});
+    }
+
+    let pointerDownPos = { x: 0, y: 0 };
+
+    function handlePointerDown(e) {
+        if (e.target !== canvas) return; 
+        pointerDownPos = { x: e.clientX || e.touches[0].clientX, y: e.clientY || e.touches[0].clientY };
+
+        if (state === 1 && !isPaused) {
+            const rect = container.getBoundingClientRect();
+            let worldX = ((pointerDownPos.x - rect.left) / rect.width * 10) - 5; 
+            
+            if (Math.abs(worldX - saplingPivot.position.x) < 2.0) {
+                isDragging = true;
+                dragOffset = saplingPivot.position.x - worldX;
+
+                if (showDragHint) {
+                    showDragHint = false;
+                    gsap.to(dragHint, { opacity: 0, duration: 0.3 });
+                }
+            }
+        }
+    }
+
+    function handlePointerMove(e) {
+        if (state !== 1 || !isDragging || isPaused) return;
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+        const rect = container.getBoundingClientRect();
+        let worldX = ((clientX - rect.left) / rect.width * 10) - 5; 
+        
+        let targetX = worldX + dragOffset;
+        targetX = Math.max(-5.5, Math.min(targetX, bossTree.position.x - 4.0));
+        saplingPivot.position.x = targetX; 
+
+        if (bossTree.position.x - targetX < 5.2) {
+            state = 2; isDragging = false;
+            gsap.to(saplingPivot.position, { x: -2.5, duration: 0.8, ease: "back.out(1.2)" });
+            gsap.to(sapling.scale, { x: 0.25, y: 0.25, z: 0.25, duration: 1, ease: "elastic.out(1, 0.5)" });
+            startPhase2();
+        }
+    }
+
+    function handlePointerUp(e) {
+        isDragging = false;
+        if (e.target !== canvas || state === 0) return;
+        
+        const clientX = e.clientX || (e.changedTouches ? e.changedTouches[0].clientX : pointerDownPos.x);
+        const clientY = e.clientY || (e.changedTouches ? e.changedTouches[0].clientY : pointerDownPos.y);
+        
+        if (state !== 1 && state !== 2 && state !== 6 && Math.hypot(clientX - pointerDownPos.x, clientY - pointerDownPos.y) < 10) {
+            isPaused = !isPaused;
+            if (isPaused) {
+                gsap.globalTimeline.pause();
+                document.getElementById('pause-overlay').style.opacity = '1';
+            } else {
+                gsap.globalTimeline.play();
+                document.getElementById('pause-overlay').style.opacity = '0';
+            }
+        }
+    }
+
+    container.addEventListener('pointerdown', handlePointerDown);
+    container.addEventListener('pointermove', handlePointerMove);
+    container.addEventListener('pointerup', handlePointerUp);
+    container.addEventListener('pointercancel', () => isDragging = false);
+
+    // --- RESTART SYSTEM ---
+    function resetGame() {
+        state = 0; isPaused = false; customTime = 0;
+        gsap.globalTimeline.clear(); gsap.killTweensOf("*");
+        clearTimeout(showcaseTimeout);
+        
+        camera.position.set(0, 20, 55); camera.lookAt(0, 10, 30);
+        
+        scene.background.copy(morningColor); scene.fog.color.copy(morningColor);
+        scene.fog.near = 20; scene.fog.far = 85;
+        ambientLight.intensity = 0.7; dirLight.intensity = 0.85; dirLight.color.setHex(0xfff5e6);
+        
+        const toRemove = [];
+        scene.children.forEach(c => { if (c.userData && c.userData.isBgTree) toRemove.push(c); });
+        toRemove.forEach(c => scene.remove(c));
+        birdGroup.clear(); birds.length = 0;
+        
+        saplingPivot.position.set(-4.5, 0, 0); saplingPivot.rotation.set(0,0,0); sapling.scale.set(0.15, 0.15, 0.15);
+        bossTree.position.set(2.5, 0, 0); bossTree.scale.set(1,1,1); bossTree.userData.materials.forEach(mat => mat.opacity = 1);
+        
+        sceneParams.windIntensity = 0; sceneParams.rainSpeed = 0.2;
+        rainSystem.visible = false; rainMat.opacity = 0;
+        
+        splashes.forEach(s => { s.userData.active = false; s.material.opacity = 0; });
+
+        cloudLeft.position.set(-4, 18, 45); cloudRight.position.set(4, 17, 47); cloudMat.opacity = 1;
+        sunFlare.material.opacity = 0; sunFlare.scale.set(30, 30, 1);
+        
+        document.getElementById('dark-overlay').style.opacity = '0';
+        topVignette.style.opacity = '0';
+        
+        mainText.innerText = ''; subText.innerText = '';
+        bubbleText.innerText = ''; bubbleText.style.opacity = '0';
+        actionBanner.style.opacity = '0'; document.getElementById('pause-overlay').style.opacity = '0';
+        particleLayer.innerHTML = '';
+        
+        document.getElementById('start-screen-bg').style.opacity = '0'; 
+    }
+
+    restartBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        gsap.to(restartBtn, { opacity: 0, duration: 0.5, pointerEvents: 'none' });
+        
+        const transOverlay = document.getElementById('transition-overlay');
+        gsap.to(transOverlay, { opacity: 1, duration: 1, onComplete: () => {
+            resetGame();
+            
+            const startScreen = document.getElementById('start-screen');
+            startScreen.style.display = 'flex';
+            gsap.to(startScreen, { opacity: 1, duration: 0 }); 
+            document.getElementById('start-screen-bg').style.opacity = '1';
+            
+            gsap.to(transOverlay, { opacity: 0, duration: 1 });
+        }});
+    });
+
+    // --- 8. STORY SEQUENCES ---
+    setTimeout(() => { document.getElementById('start-screen-bg').style.opacity = '0'; }, 500);
+
+    document.getElementById('start-btn').addEventListener('click', () => {
+        gsap.to(document.getElementById('start-screen'), { opacity: 0, duration: 1, onComplete: () => {
+            document.getElementById('start-screen').style.display = 'none';
+            startPhase1_Intro();
+        }});
+    });
+
+    function startPhase1_Intro() {
+        state = 0.5; 
+        const tl = gsap.timeline();
+        let camTween = { x: 0, y: 20, z: 55, lx: 0, ly: 10, lz: 30 };
+        
+        tl.to(cloudLeft.position, { x: -28, duration: 4, ease: "power2.inOut" }, 0);
+        tl.to(cloudRight.position, { x: 28, duration: 4, ease: "power2.inOut" }, 0);
+        
+        tl.to(camTween, {
+            x: 5, y: 14, z: 40, lx: 0, ly: 4, lz: 0, 
+            duration: 4, ease: "power2.inOut",
+            onUpdate: () => {
+                camera.position.set(camTween.x, camTween.y, camTween.z);
+                camera.lookAt(camTween.lx, camTween.ly, camTween.lz);
+            }
+        }, 0);
+
+        tl.to(cloudMat, { opacity: 0, duration: 2 }, 4);
+
+        tl.call(() => updateText("Did you see that?", ""), [], 3.5);
+        tl.call(() => updateText("A small tree in a big field.", "(It is me!)"), [], 7.0);
+        tl.call(() => updateText("", ""), [], 11.0);
+
+        tl.to({}, { duration: 7.5 }, 4);
+
+        tl.to(camTween, {
+            x: -4.5, y: 2.5, z: 7, 
+            lx: -4.5, ly: 1, lz: 0, 
+            duration: 3.5, ease: "power2.inOut",
+            onUpdate: () => {
+                camera.position.set(camTween.x, camTween.y, camTween.z);
+                camera.lookAt(camTween.lx, camTween.ly, camTween.lz);
+            }
+        }, 11.5);
+
+        tl.add(() => {
+            rainSystem.visible = true;
+            sceneParams.rainSpeed = 0.2; 
+            gsap.to(rainMat, { opacity: 0.3, duration: 2 });
+            gsap.to(sceneParams, { windIntensity: 0.3, duration: 2 });
+        }, "-=0.5");
+
+        tl.add(() => {
+            gsap.to(scene.background, { r: stormColor.r, g: stormColor.g, b: stormColor.b, duration: 1 });
+            gsap.to(scene.fog.color, { r: stormColor.r, g: stormColor.g, b: stormColor.b, duration: 1 });
+            gsap.to(ambientLight, { intensity: 0.3, duration: 1 }); 
+            gsap.to(dirLight, { intensity: 0.4, duration: 1 });
+            
+            gsap.to(rainMat, { opacity: 0.8, duration: 1 });
+            gsap.to(sceneParams, { windIntensity: 1, rainSpeed: 1, duration: 1 });
+            lightningInterval = setInterval(flashLightning, 300);
+        }, "+=2");
+
+        tl.to(camTween, {
+            x: 0, y: 10, z: 26,
+            lx: 0, ly: 3, lz: 0,
+            duration: 3, ease: "power2.inOut",
+            onUpdate: () => {
+                camera.position.set(camTween.x, camTween.y, camTween.z);
+                camera.lookAt(camTween.lx, camTween.ly, camTween.lz);
+            },
+            onComplete: () => {
+                clearInterval(lightningInterval); 
+                updateText("When I started, I was fragile.", ""); 
+                state = 1; 
+                
+                showDragHint = true;
+                gsap.to(dragHint, { opacity: 1, duration: 1, delay: 0.5 });
+                gsap.to(actionBanner, { opacity: 1, duration: 1 });
+            }
+        }, "+=1.5");
+    }
+
+    function startPhase2() {
+        gsap.to(sceneParams, { windIntensity: 0, duration: 1.5 }); 
+        gsap.to(scene.background, { r: morningColor.r, g: morningColor.g, b: morningColor.b, duration: 3 });
+        gsap.to(scene.fog.color, { r: morningColor.r, g: morningColor.g, b: morningColor.b, duration: 3 });
+        gsap.to(ambientLight, { intensity: 0.7, duration: 3 }); gsap.to(dirLight, { intensity: 0.85, duration: 3 });
+        
+        gsap.to(rainMat, { opacity: 0, duration: 2, onComplete: () => { rainSystem.visible = false; }});
+
+        updateText("You provided a safe space to grow.", ""); 
+
+        const startCamPos = camera.position.clone();
+        const targetCamPos = new THREE.Vector3(-5, 16, 22); 
+        let camTween = { t: 0 };
+        
+        gsap.to(camTween, {
+            t: 1, duration: 4, ease: "power2.inOut",
+            onUpdate: () => {
+                camera.position.lerpVectors(startCamPos, targetCamPos, camTween.t);
+                camera.lookAt(-2.5 * camTween.t, 3 + (1 * camTween.t), 0); 
+            },
+            onComplete: () => {
+                updateText("You provided a safe space to grow.", "(Tap to absorb)");
+                spawnBubbles(); 
+            }
+        });
+    }
+
+    function spawnBubbles() {
+        activeMemories = memories.length;
+        const positions = [];
+        for (let i = 0; i < memories.length; i++) {
+            let safe = false; let leftPerc, topPerc; let attempts = 0;
+            while (!safe && attempts < 50) {
+                leftPerc = 15 + Math.random() * 70; topPerc = 25 + Math.random() * 30; safe = true;
+                for (let j = 0; j < positions.length; j++) {
+                    if (Math.sqrt(Math.pow(positions[j].left - leftPerc, 2) + Math.pow(positions[j].top - topPerc, 2)) < 25) { safe = false; break; }
+                }
+                attempts++;
+            }
+            positions.push({ left: leftPerc, top: topPerc });
+            
+            const btn = document.createElement('div');
+            btn.className = "particle bubble-pulse absolute px-5 py-2.5 bg-white/95 text-[#6e5c47] font-bold rounded-full shadow-[0_8px_16px_rgba(0,0,0,0.15)] pointer-events-auto cursor-pointer";
+            btn.innerText = memories[i];
+            btn.style.left = `${leftPerc}%`; btn.style.top = `${topPerc}%`;
+            particleLayer.appendChild(btn);
+
+            gsap.to(btn, { opacity: 1, scale: 1, duration: 0.5, delay: i * 0.2 + 1, ease: "back.out(1.5)" });
+            gsap.to(btn, { y: "-=15", duration: 1.5 + Math.random(), repeat: -1, yoyo: true, ease: "sine.inOut" });
+
+            btn.addEventListener('pointerdown', (e) => {
+                if (isPaused) return; 
+                e.stopPropagation(); gsap.killTweensOf(btn);
+                
+                btn.classList.remove('bubble-pulse');
+
+                gsap.to(bubbleText, { opacity: 0, duration: 0.2, onComplete: () => {
+                    bubbleText.innerText = memoryPhrases[memories[i]];
+                    gsap.to(bubbleText, { opacity: 1, duration: 0.5 });
+                }});
+
+                const treePos3D = new THREE.Vector3(saplingPivot.position.x, 2.5, saplingPivot.position.z);
+                treePos3D.project(camera); 
+                const targetLeft = (treePos3D.x * 0.5 + 0.5) * 100; const targetTop = (-(treePos3D.y * 0.5) + 0.5) * 100;
+
+                gsap.to(btn, { 
+                    left: `${targetLeft}%`, top: `${targetTop}%`, scale: 0.1, opacity: 0, duration: 0.6, ease: "power2.in", 
+                    onComplete: () => {
+                        btn.remove();
+                        const newScale = sapling.scale.x + 0.12; 
+                        gsap.to(sapling.scale, { x: newScale, y: newScale, z: newScale, duration: 1.2, ease: "elastic.out(1, 0.4)" });
+                        activeMemories--;
+                        
+                        if (activeMemories === 0) { 
+                            state = 2.4; 
+                            updateText("", ""); 
+                            gsap.to(bubbleText, { opacity: 0, duration: 1, delay: 1 });
+                            gsap.to(actionBanner, { opacity: 0, duration: 1 });
+                            
+                            const startCamPos = camera.position.clone();
+                            const targetCamPos = new THREE.Vector3(-2.0, 6, 16); 
+                            let camTween = { t: 0 };
+                            
+                            gsap.to(camTween, {
+                                t: 1, duration: 3.5, ease: "power2.inOut",
+                                onUpdate: () => {
+                                    camera.position.lerpVectors(startCamPos, targetCamPos, camTween.t);
+                                    camera.lookAt(-2.5, 4 * (1 - camTween.t) + (3 * camTween.t), 0); 
+                                },
+                                onComplete: () => {
+                                    state = 2.5; 
+                                    startPhase2_5(); 
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    function startPhase2_5() {
+        updateText("When the storms returned...", "(We didn't break!)");
+
+        gsap.to(scene.background, { r: stormColor.r, g: stormColor.g, b: stormColor.b, duration: 2 });
+        gsap.to(scene.fog.color, { r: stormColor.r, g: stormColor.g, b: stormColor.b, duration: 2 });
+        gsap.to(ambientLight, { intensity: 0.3, duration: 2 });
+        gsap.to(dirLight, { intensity: 0.4, duration: 2 });
+        
+        rainSystem.visible = true;
+        sceneParams.rainSpeed = 1;
+        gsap.to(rainMat, { opacity: 1.0, duration: 2 });
+
+        lightningInterval = setInterval(flashLightning, 300);
+
+        setTimeout(startPhase3_Clearing, 7000);
+    }
+
+    function startPhase3_Clearing() {
+        state = 2.8;
+        clearInterval(lightningInterval); 
+        updateText("", ""); 
+
+        gsap.to(sceneParams, { windIntensity: 0, duration: 4 });
+        gsap.to(rainMat, { opacity: 0, duration: 3, onComplete: () => { rainSystem.visible = false; }});
+
+        gsap.to(scene.background, { r: 179/255, g: 212/255, b: 224/255, duration: 5 });
+        gsap.to(scene.fog.color, { r: 179/255, g: 212/255, b: 224/255, duration: 5 });
+        gsap.to(dirLight.color, { r: 255/255, g: 240/255, b: 225/255, duration: 5 });
+        gsap.to(ambientLight, { intensity: 0.7, duration: 5 });
+        gsap.to(dirLight, { intensity: 1.0, duration: 5 });
+
+        gsap.to(sunFlare.material, { opacity: 1, duration: 5 });
+        gsap.to(sunFlare.scale, { x: 38, y: 38, duration: 5, yoyo: true, repeat: -1, ease: "sine.inOut" });
+
+        const startCamPos = camera.position.clone();
+        const targetCamPos = new THREE.Vector3(-4, 3, 12); 
+        let camTween = { t: 0 };
+        gsap.to(camTween, {
+            t: 1, duration: 5, ease: "power2.inOut",
+            onUpdate: () => {
+                camera.position.lerpVectors(startCamPos, targetCamPos, camTween.t);
+                camera.lookAt(-2.5, 3 + (2 * camTween.t), 0); 
+            }
+        });
+
+        setTimeout(startPhase3_Growth, 5500);
+    }
+
+    function startPhase3_Growth() {
+        state = 3;
+        updateText("Because of you, I learned to stand up with my own strength.", "");
+
+        gsap.to(sapling.scale, { x: 0.85, y: 0.85, z: 0.85, duration: 4, ease: "power2.inOut" });
+        gsap.to(bossTree.position, { x: 6.5, duration: 4, ease: "power2.inOut" });
+
+        const startCamPos = camera.position.clone();
+        const targetCamPos = new THREE.Vector3(0, 10, 26); 
+        let camTween = { t: 0 };
+        gsap.to(camTween, {
+            t: 1, duration: 5, ease: "power2.inOut",
+            onUpdate: () => {
+                camera.position.lerpVectors(startCamPos, targetCamPos, camTween.t);
+                camera.lookAt(-2.5 * (1 - camTween.t), 5 - (2 * camTween.t), 0); 
+            }
+        });
+
+        setTimeout(startPhase4, 7000);
+    }
+
+    function startPhase4() {
+        updateText("You may stand in another field now...", ""); 
+        
+        gsap.to(scene.fog, { near: 35, far: 110, duration: 8 });
+        gsap.to(camera.position, { y: 22, z: 48, duration: 8, ease: "power2.inOut" });
+        gsap.to(camera.rotation, { x: -0.18, duration: 8, ease: "power2.inOut" });
+        
+        gsap.to(sunFlare.material, { opacity: 0, duration: 4 });
+
+        const treeColors = [0x657A53, 0x8CA86E, 0xE9C46A, 0xF4A261, 0xffb7b2];
+        const numRings = 7;
+        const treesPerRing = [6, 10, 14, 18, 22, 26, 30]; 
+        
+        for(let r = 0; r < numRings; r++) {
+            const radius = 7 + r * 6; 
+            const count = treesPerRing[r];
+            const angleStep = (Math.PI * 2) / count;
+            
+            for(let i = 0; i < count; i++) {
+                const angle = i * angleStep + (Math.random() * 0.6 - 0.3); 
+                let targetX = Math.cos(angle) * radius - 1.5 + (Math.random()*2-1); 
+                let targetZ = Math.sin(angle) * radius - 5 + (Math.random()*2-1); 
+
+                if (targetZ > 12 && Math.abs(targetX) < 15) continue; 
+
+                const bgTree = createForestTree(
+                    treeColors[Math.floor(Math.random() * treeColors.length)], 
+                    2.5 + Math.random() * 4.5, 1.5 + Math.random() * 2.5
+                );
+                
+                bgTree.userData.isBgTree = true;
+                bgTree.position.set(targetX, 0, targetZ);
+                bgTree.scale.set(0.01, 0.01, 0.01); 
+                scene.add(bgTree);
+
+                const fadeDelay = 0.5 + Math.random() * 3.5; 
+                bgTree.userData.materials.forEach(mat => { gsap.to(mat, { opacity: 1, duration: 3.5, delay: fadeDelay, ease: "power1.inOut" }); });
+                gsap.to(bgTree.scale, { x: 1, y: 1, z: 1, duration: 3.5, delay: fadeDelay, ease: "power2.out" });
+            }
+        }
+
+        const birdGeo = new THREE.ConeGeometry(0.2, 0.8, 4); birdGeo.rotateX(Math.PI / 2); 
+        for (let i = 0; i < 12; i++) {
+            const birdMat = new THREE.MeshBasicMaterial({ color: 0x333333, transparent: true, opacity: 0 });
+            const bird = new THREE.Mesh(birdGeo, birdMat);
+            bird.userData = { angle: Math.random() * Math.PI * 2, speed: 0.0015 + Math.random() * 0.0015, radius: 10 + Math.random() * 25, baseY: 15 + Math.random() * 8, bobSpeed: 0.5 + Math.random() * 0.8 };
+            birdGroup.add(bird); birds.push(bird);
+            gsap.to(birdMat, { opacity: 0.7, duration: 4, delay: 5 + Math.random() * 2 });
+        }
+
+        bossTree.userData.materials.forEach(mat => { gsap.to(mat, { opacity: 0, duration: 3, ease: "power1.inOut" }); });
+        gsap.to(bossTree.scale, { x: 0.01, y: 0.01, z: 0.01, duration: 3, ease: "power2.in" });
+
+        setTimeout(() => {
+            bossTree.position.set(0, 0, -35); 
+            bossTree.userData.materials.forEach(mat => { gsap.to(mat, { opacity: 0.8, duration: 6, ease: "power1.inOut" }); });
+            gsap.to(bossTree.scale, { x: 2.5, y: 2.5, z: 2.5, duration: 6, ease: "power2.out" });
+        }, 3000);
+
+        setTimeout(() => {
+            updateText("You may stand in another field now...", "But this forest is stronger because of you.");
+        }, 8500);
+
+        setTimeout(() => {
+            gsap.to('#dark-overlay', { opacity: 1, duration: 3 });
+            updateText("The trees under your leadership will continue to grow strong.", "", "#ffffff", true);
+        }, 16000);
+
+        setTimeout(() => {
+            updateText("", ""); 
+        }, 21000); 
+
+        // --- NEW: THE LOOP FIX ---
+        setTimeout(() => {
+            updateText("Good luck in your new journey!", "We are a team.", "#ffffff", true);
+            state = 6; 
+            
+            gsap.to(restartBtn, { opacity: 1, pointerEvents: 'auto', duration: 2, delay: 2 });
+            
+            // Wait with the text on screen, then start fading back and panning without clearing the text
+            setTimeout(playShowcase, 2000);
+        }, 22500);
+    }
+
+    const showcaseShots = [
+        { sp: new THREE.Vector3(-6, 2, 8), sl: new THREE.Vector3(0, 4, 0), ep: new THREE.Vector3(2, 2, 8), el: new THREE.Vector3(0, 4, 0) },
+        { sp: new THREE.Vector3(0, 25, 10), sl: new THREE.Vector3(0, 0, -5), ep: new THREE.Vector3(0, 18, 5), el: new THREE.Vector3(0, 0, -10) },
+        { sp: new THREE.Vector3(15, 3, -10), sl: new THREE.Vector3(0, 4, -10), ep: new THREE.Vector3(10, 3, -5), el: new THREE.Vector3(0, 4, -5) },
+        { sp: new THREE.Vector3(-8, 1, 5), sl: new THREE.Vector3(10, 15, -15), ep: new THREE.Vector3(-4, 1.5, 8), el: new THREE.Vector3(10, 15, -15) },
+        { sp: new THREE.Vector3(0, 8, 25), sl: new THREE.Vector3(-2, 4, 0), ep: new THREE.Vector3(-12, 6, 20), el: new THREE.Vector3(2, 4, 0) }
+    ];
+    let currentShot = 0;
+
+    function playShowcase() {
+        if (state !== 6) return; 
+
+        const shot = showcaseShots[currentShot % showcaseShots.length];
+        currentShot++;
+
+        camera.position.copy(shot.sp);
+        camera.lookAt(shot.sl);
+        
+        let camTween = { t: 0 };
+        gsap.to(camTween, {
+            t: 1, duration: 6.5, ease: "power1.inOut",
+            onUpdate: () => {
+                camera.position.lerpVectors(shot.sp, shot.ep, camTween.t);
+                const currentLook = new THREE.Vector3().lerpVectors(shot.sl, shot.el, camTween.t);
+                camera.lookAt(currentLook);
+            }
+        });
+
+        // Fade UP the dark overlay to reveal the camera shot underneath the final text
+        gsap.to('#dark-overlay', { opacity: 0.4, duration: 1.5 });
+
+        // Fade DOWN to pitch black before switching to the next shot
+        showcaseTimeout = setTimeout(() => {
+            if (state !== 6) return;
+            gsap.to('#dark-overlay', { opacity: 1, duration: 1.5, onComplete: () => {
+                if (state === 6) playShowcase();
+            }});
+        }, 5000);
+    }
+
+</script>
+</body>
+</html>
